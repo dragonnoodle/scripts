@@ -104,4 +104,55 @@ $(OBJFILES): %.o:%.c $(HEADERS)
 clean:
 	@echo Removing generated files...
 	@ -$(RM) -rf $(OBJFILES) $(TARGET) $(EXEC_DIR) *~ *.d *.o 
+##############################################################################################################################
+dirs:=$(shell find . -maxdepth 1 -type d)
+dirs:=$(basename $(patsubst ./%,%,$(dirs)))
+maindir:=$(findstring main,$(dirs))
+dirs:=$(filter-out $(exclude_dirs) main,$(dirs))
+SUBDIRS:=$(dirs) $(maindir)
+
+ifeq ($(findstring g++,$(CC)),g++)
+	src_suffix=.cpp
+else
+	src_suffix=.c
+endif
+
+SRC:=$(wildcard $(addprefix *,$(src_suffix)))
+OBJS:=$(addsuffix .o,$(basename $(SRC)))
+DEPENDS:=$(addsuffix .d,$(basename $(SRC)))
+
+all:$(TARGET) $(LIB) subdirs
+
+subdirs:$(SUBDIRS)
+	@for dir in $(SUBDIRS); \
+	do $(MAKE) -C $$dir all || exit 1; \
+	done
+
+$(TARGET):$(OBJS) $(TARGET_LIBS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(CFLAGS) $(LDFLAGS)
+	$(if $(EXEPATH),@cp $@ $(EXEPATH))
+
+$(LIB):CFLAGS+= -fPIC
+$(LIB):$(OBJS)
+	$(CC) -shared $(CPPFLAGS) $^ -o $@ $(CFLAGS) $(LDFLAGS)
+	$(if $(LIBPATH),@cp $@ $(LIBPATH))
+
+$(OBJS):CFLAGS+= -c
+$(OBJS):%.o:%$(src_suffix)
+	$(CC) $(CPPFLAGS) $< -o $@ $(CFLAGS)
+
+-include $(DEPENDS)
+$(DEPENDS):%.d:%$(src_suffix)
+	@set -e; $(RM) $@; \
+	$(CC) -MM $(CPPFLAGS) $< > $@.$$$$; \
+	sed 's,\($*\)\.o[:]*,\1.o $@:,g' < $@.$$$$ > $@; \
+    $(RM) $@.$$$$
+clean:
+	@for dir in $(SUBDIRS); \
+	do $(MAKE) -C $$dir clean || exit 1; \
+	done
+	$(RM) $(TARGET) $(LIB) $(OBJS) $(DEPENDS) *.d.*[0-9]
+	$(if $(notdir $(LIBPATH)$(LIB)),$(RM) $(LIBPATH)$(LIB))
+	$(if $(notdir $(EXEPATH)$(TARGET)),$(RM) $(EXEPATH)$(TARGET))
+
 
